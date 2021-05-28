@@ -70,8 +70,8 @@ if __name__ == '__main__':
         url = "https://cloudsso.cisco.com/as/token.oauth2"
         params = {
             'grant_type': "client_credentials",
-            'client_id': "689cd297-14ac-45c9-828f-fd241859d2c8",
-            'client_secret': "8dea68cf-162b-47e2-ab18-ffece0a0d765"
+            'client_id': "",
+            'client_secret': ""
         }
         response = requests.request("POST", url,  params=params)
         print(response.text)
