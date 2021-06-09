@@ -101,7 +101,7 @@ if __name__ == '__main__':
         # using json.loads()
         # convert dictionary string to dictionary
         tokens = json.loads(existing_tokens.text)
-        if tokens['tokens'] != 0:
+        if len(tokens['tokens']) != 0:
            idtoken = tokens['tokens'][0]['token']
         else:
            # SL on CSSM On-Prem

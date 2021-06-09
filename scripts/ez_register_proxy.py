@@ -63,15 +63,17 @@ if __name__ == '__main__':
            export_controlled = sheet.cell_value(i, 8)
            proxy_address = str(sheet.cell_value(i, 9)) 
            port_number = str(int(sheet.cell_value(i, 10)))
-  
+           client_id = sheet.cell_value(i, 11)
+           client_secret = sheet.cell_value(i, 12)           
+
         print("=================================================")
         print("Creating access token to securely connect CSSM")
         print("=================================================")
         url = "https://cloudsso.cisco.com/as/token.oauth2"
         params = {
             'grant_type': "client_credentials",
-            'client_id': "689cd297-14ac-45c9-828f-fd241859d2c8",
-            'client_secret': "8dea68cf-162b-47e2-ab18-ffece0a0d765"
+            'client_id': client_id,
+            'client_secret': client_secret
         }
         response = requests.request("POST", url,  params=params)
         print(response.text)
@@ -100,7 +102,7 @@ if __name__ == '__main__':
         # using json.loads()
         # convert dictionary string to dictionary
         tokens = json.loads(existing_tokens.text)
-        if tokens['tokens'] != 0:
+        if len(tokens['tokens']) != 0:
            idtoken = tokens['tokens'][0]['token']
         else:
            print("There are no existing token available")       
