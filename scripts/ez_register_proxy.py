@@ -37,10 +37,16 @@ if __name__ == '__main__':
         handler.setFormatter(formatter)
         logger.addHandler(handler)
 
+    # Initialize output file
+    wb_output = xlwt.Workbook()
+    sheet_output = wb_output.add_sheet('output')
+    sheet_output.write(0, 0, "Hostname")
+    sheet_output.write(0, 1, "Username")
+    sheet_output.write(0, 2, "SL Registration Status")
 
     # Read the excel sheet
     print("================================")
-    print("Reading the excel sheet") 
+    print("Reading the excel sheet")
     print("================================")
     input_file = args.input_file
     wb = xlrd.open_workbook(input_file)
@@ -61,10 +67,38 @@ if __name__ == '__main__':
            description = sheet.cell_value(i, 6)
            expires_after_days = sheet.cell_value(i, 7)
            export_controlled = sheet.cell_value(i, 8)
-           proxy_address = str(sheet.cell_value(i, 9)) 
+           proxy_address = str(sheet.cell_value(i, 9))
            port_number = str(int(sheet.cell_value(i, 10)))
            client_id = sheet.cell_value(i, 11)
-           client_secret = sheet.cell_value(i, 12)           
+           client_secret = sheet.cell_value(i, 12)
+
+         # connect to the devices
+        print("================================")
+        print("connecting to the node")
+        print("================================")
+        device = ConnectHandler(device_type='cisco_xr', ip=hostname, username=username, password=password)
+        device.find_prompt()
+
+        # check initial registration status
+        initial_license_status = device.send_command("show license status")
+        if "Status: REGISTERED" in initial_license_status:
+            if "Smart Account: " + smart_account in initial_license_status and "Virtual Account: " + virtual_account in initial_license_status:
+                continue
+            else:
+                deregister = device.send_command("license smart deregister ")
+                print(deregister)
+                
+        # configure call-home
+        print("====================================================================")
+        print("Configuring Call Home")
+        print("====================================================================")
+        config_commands = ['call-home',
+        'http-proxy ' + proxy_address + ' port ' + port_number,
+        'profile CiscoTAC-1',
+        'destination address http https://tools.cisco.com/its/service/oddce/services/DDCEService',
+        'commit', 'end']
+        output = device.send_config_set(config_commands)
+        print(output)
 
         print("=================================================")
         print("Creating access token to securely connect CSSM")
@@ -81,7 +115,7 @@ if __name__ == '__main__':
         # convert dictionary string to dictionary
         bearer = json.loads(response.text)
         access_token = bearer["access_token"]
-        
+
         # Constructing Retrieve Existing Tokens Rest API
         print("=============================================")
         print("Constructing Retrieve Existing Tokens Rest API")
@@ -93,7 +127,7 @@ if __name__ == '__main__':
              #'Content-Type':'application/x-www-form-urlencoded',
              'Accept':'application/json'
         }
-        
+
         print("====================================================================================")
         print("Executing SL REST API to Retrieve Existing Tokens in CSSM")
         print("====================================================================================")
@@ -105,7 +139,7 @@ if __name__ == '__main__':
         if len(tokens['tokens']) != 0:
            idtoken = tokens['tokens'][0]['token']
         else:
-           print("There are no existing token available")       
+           print("There are no existing token available")
            # Contructing Create New Token Rest API
            print("=============================================")
            print("Constructing Create New token REST API")
@@ -122,10 +156,10 @@ if __name__ == '__main__':
            data["description"] = description
            data["expiresAfterDays"] = expires_after_days
            data["exportControlled"] = export_controlled
-	
+
            data = json.dumps(data)
            print("====================================================================================")
-           print("Executing SL REST API to generate registration token in CSSM") 
+           print("Executing SL REST API to generate registration token in CSSM")
            print("====================================================================================")
            response = requests.request("POST", url, data=data, headers=headers)
            print(response.text)
@@ -133,39 +167,20 @@ if __name__ == '__main__':
            # convert dictionary string to dictionary
            token = json.loads(response.text)
            idtoken = token["tokenInfo"]["token"]
-        
-         # connect to the devices
-        print("================================")
-        print("connecting to the node")
-        print("================================")
-        device = ConnectHandler(device_type='cisco_xr', ip=hostname, username=username, password=password)
-        device.find_prompt()
 
-        # configure call-home
-        print("====================================================================")
-        print("Configuring Call Home")
-        print("====================================================================")
-        config_commands = ['call-home', 
-        'http-proxy ' + proxy_address + ' port ' + port_number, 
-        'profile CiscoTAC-1',
-        'destination address http https://tools.cisco.com/its/service/oddce/services/DDCEService',
-        'commit', 'end']
-        output = device.send_config_set(config_commands)
-        print(output)
-
-        # register smart license idtoken on the node 
+        # register smart license idtoken on the node
         print("==============================================")
         print("registering smart license idtoken")
         print("===============================================")
         output = device.send_command("license smart register idtoken " + idtoken)
         print(output)
-        
+
         registered = False
         # register smart license status
         print("==============================================")
         print("registering smart license status")
         print("===============================================")
-        for i in range(0,5):
+        for j in range(0,5):
            time.sleep(5)
            license_status = device.send_command("show license status")
            if "Status: REGISTERED" in license_status:
@@ -173,16 +188,9 @@ if __name__ == '__main__':
               break
         print(license_status)
 
-        wb_output = xlwt.Workbook()
-        sheet_output = wb_output.add_sheet('output')
-        if i == 1:
-           sheet_output.write(0, 0, "Hostname")
-           sheet_output.write(0, 1, "Username")
-           sheet_output.write(0, 2, "SL Registration Status")
-          
         sheet_output.write(i, 0, hostname)
         sheet_output.write(i, 1, username)
-        
+
         if "successfully" in output and registered:
            sheet_output.write(i, 2, "succcess")
            print("===================================================")
@@ -197,8 +205,7 @@ if __name__ == '__main__':
            print("SL registration failed!!")
            print("====================================================")
            print("====================================================")
-        wb_output.save('ez_register_proxy_results.xls')
-        
+
         if fcm == "Yes" or fcm == "yes":
            # enable license smart reservation configuration
            print("====================================================================")
@@ -210,8 +217,7 @@ if __name__ == '__main__':
            print("===================================================")
            print("FCM is enabled successfully!!")
            print("====================================================")
-    
+
         # disconnect device
         device.disconnect()
-
-  
+    wb_output.save('ez_register_proxy_results.xls')

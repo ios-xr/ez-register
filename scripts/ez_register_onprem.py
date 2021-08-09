@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+#!/usr/bin/env python
 
 from netmiko import ConnectHandler
 import requests
@@ -37,10 +37,16 @@ if __name__ == '__main__':
         handler.setFormatter(formatter)
         logger.addHandler(handler)
 
+    # Initialize output file
+    wb_output = xlwt.Workbook()
+    sheet_output = wb_output.add_sheet('output')
+    sheet_output.write(0, 0, "Hostname")
+    sheet_output.write(0, 1, "Username")
+    sheet_output.write(0, 2, "SL Registration Status")
 
     # Read the excel sheet
     print("================================")
-    print("Reading the excel sheet") 
+    print("Reading the excel sheet")
     print("================================")
     input_file = args.input_file
     wb = xlrd.open_workbook(input_file)
@@ -64,7 +70,42 @@ if __name__ == '__main__':
            onprem_ip = sheet.cell_value(i, 9)
            onprem_clientid = sheet.cell_value(i, 10)
            onprem_clientsecret = sheet.cell_value(i, 11)
-   
+
+        # connect to the devices
+        print("================================")
+        print("connecting to the node")
+        print("================================")
+        device = ConnectHandler(device_type='cisco_xr', ip=hostname, username=username, password=password)
+        device.find_prompt()
+
+        # check initial registration status
+        initial_license_status = device.send_command("show license status")
+        if "Status: REGISTERED" in initial_license_status:
+            if "Smart Account: " + smart_account in initial_license_status and "Virtual Account: " + virtual_account in initial_license_status:
+                continue
+            else:
+                deregister = device.send_command("license smart deregister ")
+                print(deregister)
+
+        # configure call-home
+        print("====================================================================")
+        print("Configuring Call Home")
+        print("====================================================================")
+        config_commands = ['call-home', 'profile CiscoTAC-1',
+        'no destination address http https://tools.cisco.com/its/service/oddce/services/DDCEService',
+        'destination address http http://' + onprem_ip + '/Transportgateway/services/DeviceRequestHandler',
+        'commit', 'end']
+        output = device.send_config_set(config_commands)
+        print(output)
+
+        # configure trustpoint
+        print("====================================================================")
+        print("Trustpoint configuration on the node")
+        print("====================================================================")
+        config_commands = ['crypto ca trustpoint Trustpool crl optional', 'commit', 'end']
+        output = device.send_config_set(config_commands)
+        print(output)
+
         print("=================================================")
         print("Creating access token to securely connect CSSM On-Prem")
         print("=================================================")
@@ -74,13 +115,13 @@ if __name__ == '__main__':
             'client_id': onprem_clientid,
             'client_secret': onprem_clientsecret
         }
-        response = requests.request("POST", url,  params=params, verify=False)
+        response = requests.request("POST", url,  params=params)
         print(response.text)
         # using json.loads()
         # convert dictionary string to dictionary
         bearer = json.loads(response.text)
         access_token = bearer["access_token"]
-        
+
          # Constructing Retrieve Existing Tokens Rest API
         print("=============================================")
         print("Constructing Retrieve Existing Tokens Rest API")
@@ -96,7 +137,7 @@ if __name__ == '__main__':
         print("====================================================================================")
         print("Executing SL REST API to Retrieve Existing Tokens in CSSM On-Prem")
         print("====================================================================================")
-        existing_tokens = requests.request("GET", tokens_url, headers=headers, verify=False)
+        existing_tokens = requests.request("GET", tokens_url, headers=headers)
         print(response.text)
         # using json.loads()
         # convert dictionary string to dictionary
@@ -120,72 +161,39 @@ if __name__ == '__main__':
            data["description"] = description
            data["expiresAfterDays"] = expires_after_days
            data["exportControlled"] = export_controlled
-	
+
            data = json.dumps(data)
            print("====================================================================================")
-           print("Executing SL REST API to generate registration token in CSSM On-Prem") 
+           print("Executing SL REST API to generate registration token in CSSM On-Prem")
            print("====================================================================================")
-           response = requests.request("POST", url, data=data, headers=headers, verify=False)
+           response = requests.request("POST", url, data=data, headers=headers)
            print(response.text)
            # using json.loads()
            # convert dictionary string to dictionary
            token = json.loads(response.text)
            print(token)
            idtoken = token["tokenInfo"]["token"]
-        
-        # connect to the devices
-        print("================================")
-        print("connecting to the node")
-        print("================================")
-        device = ConnectHandler(device_type='cisco_xr', ip=hostname, username=username, password=password)
-        device.find_prompt()
 
-        # configure call-home
-        print("====================================================================")
-        print("Configuring Call Home")
-        print("====================================================================")
-        config_commands = ['call-home', 'profile CiscoTAC-1',
-        'no destination address http https://tools.cisco.com/its/service/oddce/services/DDCEService',
-        'destination address http https://' + onprem_ip + '/Transportgateway/services/DeviceRequestHandler',
-        'commit', 'end']
-        output = device.send_config_set(config_commands)
-        print(output)
-
-        # configure trustpoint
-        print("====================================================================")
-        print("Trustpoint configuration on the node")
-        print("====================================================================")
-        config_commands = ['crypto ca trustpoint Trustpool crl optional', 'commit', 'end']
-        output = device.send_config_set(config_commands)
-        print(output)
-
-        # register smart license idtoken on the node 
+        # register smart license idtoken on the node
         print("==============================================")
         print("registering smart license idtoken")
         print("===============================================")
         output = device.send_command("license smart register idtoken " + idtoken)
         print(output)
-        
+
         registered = False
         # register smart license status
         print("==============================================")
         print("registering smart license status")
         print("===============================================")
-        for i in range(0,5):
+        for j in range(0,5):
            time.sleep(5)
            license_status = device.send_command("show license status")
            if "Status: REGISTERED" in license_status:
               registered = True
               break
         print(license_status)
-        
-        wb_output = xlwt.Workbook()
-        sheet_output = wb_output.add_sheet('output')
-        if i == 1:
-           sheet_output.write(0, 0, "Hostname")
-           sheet_output.write(0, 1, "Username")
-           sheet_output.write(0, 2, "SL Registration Status")
-     
+
         sheet_output.write(i, 0, hostname)
         sheet_output.write(i, 1, username)
 
@@ -203,8 +211,7 @@ if __name__ == '__main__':
            print("SL registration failed!!")
            print("====================================================")
            print("====================================================")
-        wb_output.save('ez_register_onprem_results.xls')
-        
+
         if fcm == "Yes" or fcm == "yes":
            # enable license smart reservation configuration
            print("====================================================================")
@@ -216,8 +223,7 @@ if __name__ == '__main__':
            print("===================================================")
            print("FCM is enabled successfully!!")
            print("====================================================")
-    
+
         # disconnect device
         device.disconnect()
-
-  
+    wb_output.save('ez_register_onprem_results.xls')
